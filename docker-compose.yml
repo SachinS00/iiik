@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: multitenantapp
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - app-network
+
+  backend-api:
+    build:
+      context: ./backend-api
+      dockerfile: Dockerfile
+    container_name: backend-api
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/multitenantapp?authSource=admin
+      - JWT_SECRET=super-secret-jwt-key-12345
+      - N8N_WEBHOOK_SECRET=n8n-shared-secret-123
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/ticket-created
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongodb
+      - n8n
+    volumes:
+      - ./backend-api:/app
+      - /app/node_modules
+    networks:
+      - app-network
+
+  frontend-shell:
+    build:
+      context: ./frontend-shell
+      dockerfile: Dockerfile
+    container_name: frontend-shell
+    environment:
+      - REACT_APP_API_URL=http://localhost:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend-api
+    volumes:
+      - ./frontend-shell:/app
+      - /app/node_modules
+    networks:
+      - app-network
+
+  support-tickets-app:
+    build:
+      context: ./support-tickets-app
+      dockerfile: Dockerfile
+    container_name: support-tickets-app
+    environment:
+      - REACT_APP_API_URL=http://localhost:3001
+    ports:
+      - "3002:3002"
+    depends_on:
+      - backend-api
+    volumes:
+      - ./support-tickets-app:/app
+      - /app/node_modules
+    networks:
+      - app-network
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=password
+      - WEBHOOK_URL=http://localhost:5678
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - app-network
+
+volumes:
+  mongodb_data:
+  n8n_data:
+
+networks:
+  app-network:
+    driver: bridge

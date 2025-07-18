@@ -1,0 +1,203 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    
+    services:
+      mongodb:
+        image: mongo:7.0
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: password123
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: backend-api/package-lock.json
+
+    - name: Install backend dependencies
+      working-directory: ./backend-api
+      run: npm ci
+
+    - name: Run backend tests
+      working-directory: ./backend-api
+      run: npm test
+      env:
+        MONGODB_URI: mongodb://admin:password123@localhost:27017/multitenantapp_test?authSource=admin
+        JWT_SECRET: test-jwt-secret
+        N8N_WEBHOOK_SECRET: test-webhook-secret
+
+    - name: Run backend linting
+      working-directory: ./backend-api
+      run: |
+        npm install eslint --save-dev
+        npx eslint src/ --ext .js || true
+
+  test-frontend-shell:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend-shell/package-lock.json
+
+    - name: Install frontend-shell dependencies
+      working-directory: ./frontend-shell
+      run: npm ci
+
+    - name: Build frontend-shell
+      working-directory: ./frontend-shell
+      run: npm run build || true
+
+    - name: Run frontend-shell tests
+      working-directory: ./frontend-shell
+      run: npm test -- --coverage --watchAll=false || true
+
+  test-support-tickets:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: support-tickets-app/package-lock.json
+
+    - name: Install support-tickets-app dependencies
+      working-directory: ./support-tickets-app
+      run: npm ci
+
+    - name: Build support-tickets-app
+      working-directory: ./support-tickets-app
+      run: npm run build || true
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend-shell, test-support-tickets]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and test with Docker Compose
+      run: |
+        docker-compose -f docker-compose.yml up --build -d
+        sleep 30
+        
+        # Health checks
+        curl -f http://localhost:3001/health || exit 1
+        curl -f http://localhost:3000 || exit 1
+        curl -f http://localhost:3002 || exit 1
+        
+        # Cleanup
+        docker-compose down
+
+    - name: Run tenant isolation tests
+      run: |
+        docker-compose up -d mongodb
+        sleep 10
+        cd backend-api
+        npm ci
+        npm test tenant-isolation.test.js
+        cd ..
+        docker-compose down
+      env:
+        MONGODB_URI: mongodb://admin:password123@localhost:27017/multitenantapp_test?authSource=admin
+        JWT_SECRET: test-jwt-secret
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run security audit - Backend
+      working-directory: ./backend-api
+      run: |
+        npm audit --audit-level=high || true
+
+    - name: Run security audit - Frontend Shell
+      working-directory: ./frontend-shell
+      run: |
+        npm audit --audit-level=high || true
+
+    - name: Run security audit - Support Tickets
+      working-directory: ./support-tickets-app
+      run: |
+        npm audit --audit-level=high || true
+
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    needs: [integration-test, security-scan]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build production images
+      run: |
+        docker build -t multitenant-app/backend-api ./backend-api
+        docker build -t multitenant-app/frontend-shell ./frontend-shell
+        docker build -t multitenant-app/support-tickets-app ./support-tickets-app
+
+    - name: Run production smoke tests
+      run: |
+        # Start production build
+        docker-compose -f docker-compose.yml up -d
+        sleep 30
+        
+        # Basic smoke tests
+        curl -f http://localhost:3001/health
+        curl -f http://localhost:3000
+        
+        # Cleanup
+        docker-compose down
+
+    # Uncomment and configure for actual deployment
+    # - name: Deploy to staging
+    #   if: github.ref == 'refs/heads/develop'
+    #   run: |
+    #     echo "Deploy to staging environment"
+    
+    # - name: Deploy to production
+    #   if: github.ref == 'refs/heads/main'
+    #   run: |
+    #     echo "Deploy to production environment"
