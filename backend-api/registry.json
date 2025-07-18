@@ -1,0 +1,59 @@
+{
+  "tenants": {
+    "tenant-a": {
+      "name": "Acme Corp",
+      "screens": [
+        {
+          "id": "support-tickets",
+          "name": "Support Tickets",
+          "url": "http://localhost:3002",
+          "moduleName": "SupportTicketsApp",
+          "scope": "supportTicketsApp",
+          "permissions": ["User", "Admin"]
+        },
+        {
+          "id": "admin-dashboard",
+          "name": "Admin Dashboard",
+          "url": "http://localhost:3000/admin",
+          "moduleName": "AdminDashboard",
+          "scope": "adminDashboard",
+          "permissions": ["Admin"]
+        }
+      ]
+    },
+    "tenant-b": {
+      "name": "Beta Industries",
+      "screens": [
+        {
+          "id": "support-tickets",
+          "name": "Help Desk",
+          "url": "http://localhost:3002",
+          "moduleName": "SupportTicketsApp",
+          "scope": "supportTicketsApp",
+          "permissions": ["User", "Admin"]
+        },
+        {
+          "id": "admin-dashboard",
+          "name": "Management Console",
+          "url": "http://localhost:3000/admin",
+          "moduleName": "AdminDashboard",
+          "scope": "adminDashboard",
+          "permissions": ["Admin"]
+        }
+      ]
+    },
+    "tenant-c": {
+      "name": "Gamma Solutions",
+      "screens": [
+        {
+          "id": "support-tickets",
+          "name": "Customer Support",
+          "url": "http://localhost:3002",
+          "moduleName": "SupportTicketsApp",
+          "scope": "supportTicketsApp",
+          "permissions": ["User", "Admin"]
+        }
+      ]
+    }
+  }
+}
